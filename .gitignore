@@ -23,3 +23,6 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Nested git clone (separate repo)
+stock_backtest/
