@@ -29,7 +29,8 @@ from filters import (
     LIQUIDITY_PARAMS,
     download_all_data, 
     filter_invalid_tickers,
-    filter_liquidity_batch
+    filter_liquidity_batch,
+    filter_etf_and_oil
 )
 
 warnings.filterwarnings("ignore")
@@ -249,6 +250,11 @@ def run_screener(indices=None, tickers=None, config=None):
 
     # Deduplicate
     all_tickers = list(dict.fromkeys(all_tickers))
+    
+    # Filter out ETFs and oil/energy stocks
+    all_tickers, excluded_tickers = filter_etf_and_oil(all_tickers)
+    if excluded_tickers:
+        print(f"\n  Excluded {len(excluded_tickers)} ETFs/oil-energy stocks: {', '.join(excluded_tickers[:10])}{'...' if len(excluded_tickers) > 10 else ''}")
 
     print(f"\n{'='*90}")
     print(f"  MINERVIINI TREND TEMPLATE SCREENER")

@@ -22,7 +22,7 @@ from datetime import datetime
 SCREEN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
-    "screener": "all",  # minervini, vcp, momentum, all
+    "screener": "all",  # minervini, momentum, all
     
     # Data source
     "tickers_file": "tickers.txt",
@@ -48,21 +48,6 @@ DEFAULT_CONFIG = {
         "cond_6_pct_above_52w_low": 30,  # 30%
         "cond_7_within_pct_of_52w_high": 25,  # 25%
         "cond_8_positive_1y_return": True,
-    },
-    
-    # VCP screener params
-    "vcp": {
-        "rs_score_threshold": 60,
-        "rs_line_threshold": 1.0,
-        "volatility_max": 0.12,
-        "volatility_contraction": 0.85,
-        "breakout_window": 20,
-        "ema_short_period": 13,
-        "ema_long_period": 120,
-        "sma_period": 50,
-        "force_index_period": 13,
-        "min_volume_avg": 500000,
-        "min_price": 20.0,
     },
     
     # Momentum screener params
@@ -126,12 +111,19 @@ def run_minervini(config):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
         os.makedirs("screen_result", exist_ok=True)
         filepath = f"screen_result/screener_minervini_{timestamp}.txt"
-        passing = result[result["pass"] == True] if "pass" in result.columns else result
-        tickers = passing["ticker"].tolist() if hasattr(passing, "tolist") else []
+        
+        if result is not None and not result.empty:
+            if "pass" in result.columns:
+                passing = result[result["pass"] == True]
+            elif "signal" in result.columns:
+                passing = result[result["signal"] == True]
+            else:
+                passing = result
+            tickers = sorted(passing["ticker"].tolist()) if "ticker" in passing.columns else []
+        else:
+            tickers = []
+        
         with open(filepath, "w") as f:
-            f.write(f"# Minervini Screener Results\n")
-            f.write(f"# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total: {len(tickers)}\n\n")
             for t in tickers:
                 f.write(f"{t}\n")
         print(f"\n  Saved: {filepath}")
@@ -174,12 +166,19 @@ def run_momentum(config):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
         os.makedirs("screen_result", exist_ok=True)
         filepath = f"screen_result/screener_momentum_{timestamp}.txt"
-        passing = result[result["signal"] == True] if "signal" in result.columns else result
-        tickers = passing["ticker"].tolist() if hasattr(passing, "tolist") else []
+        
+        if result is not None and not result.empty:
+            if "signal" in result.columns:
+                passing = result[result["signal"] == True]
+            elif "pass" in result.columns:
+                passing = result[result["pass"] == True]
+            else:
+                passing = result
+            tickers = sorted(passing["ticker"].tolist()) if "ticker" in passing.columns else []
+        else:
+            tickers = []
+        
         with open(filepath, "w") as f:
-            f.write(f"# Momentum Screener Results\n")
-            f.write(f"# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total: {len(tickers)}\n\n")
             for t in tickers:
                 f.write(f"{t}\n")
         print(f"\n  Saved: {filepath}")
@@ -194,53 +193,6 @@ def run_momentum(config):
     
     return result
 
-
-def run_vcp(config):
-    """Run VCP screener."""
-    print("\n" + "="*70)
-    print("  RUNNING VCP + RS SCREENER")
-    print("="*70)
-    
-    from vcp_screener import run_screener as run_vcp_screener
-    
-    vcp_params = config["vcp"].copy()
-    screener_config = {
-        "enable_liquidity_filter": config["enable_liquidity_filter"],
-        "enable_new_high_rs": config["enable_new_high_rs"],
-        "tickers_file": config.get("tickers_file", "tickers.txt")
-    }
-    
-    result = run_vcp_screener(
-        tickers=config.get("custom_tickers", None),
-        params=vcp_params,
-        benchmark_df=None,
-        indices=["all"] if not config.get("custom_tickers") else None,
-        config=screener_config
-    )
-    
-    if config.get("save_results", True):
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        os.makedirs("screen_result", exist_ok=True)
-        filepath = f"screen_result/screener_vcp_{timestamp}.txt"
-        passing = result[result["signal"] == True] if "signal" in result.columns else result
-        tickers = passing["ticker"].tolist() if hasattr(passing, "tolist") else []
-        with open(filepath, "w") as f:
-            f.write(f"# VCP Screener Results\n")
-            f.write(f"# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total: {len(tickers)}\n\n")
-            for t in tickers:
-                f.write(f"{t}\n")
-        print(f"\n  Saved: {filepath}")
-        
-        # --- Correlation Check ---
-        if config.get("enable_correlation_check", True) and len(tickers) >= 2:
-            try:
-                from correlation import check_correlation_warnings
-                check_correlation_warnings(tickers, threshold=0.7, days=40)
-            except ImportError:
-                print("  Correlation module not found.")
-    
-    return result
 
 
 def run_all_screeners(config):
@@ -256,14 +208,12 @@ def run_all_screeners(config):
     print(f"{'#'*70}")
     
     # Run each screener
-    for screener_name in ["minervini", "momentum", "vcp"]:
+    for screener_name in ["minervini", "momentum"]:
         try:
             if screener_name == "minervini":
                 results["minervini"] = run_minervini(config)
             elif screener_name == "momentum":
                 results["momentum"] = run_momentum(config)
-            elif screener_name == "vcp":
-                results["vcp"] = run_vcp(config)
         except Exception as e:
             print(f"Error running {screener_name} screener: {e}")
             results[screener_name] = None
@@ -284,7 +234,6 @@ def main():
 Examples:
   python3 main.py                           # Run all screeners
   python3 main.py --screener minervini       # Run only Minervini
-  python3 main.py --screener vcp            # Run only VCP
   python3 main.py --screener momentum       # Run only Momentum
   python3 main.py --no-liquidity            # Disable liquidity filter
   python3 main.py --no-rs-flag              # Disable new high RS flag
@@ -295,7 +244,7 @@ Examples:
     # Screener selection
     parser.add_argument(
         "--screener", "-s",
-        choices=["minervini", "momentum", "vcp", "all"],
+        choices=["minervini", "momentum", "all"],
         default="all",
         help="Which screener to run (default: all)"
     )
@@ -407,8 +356,6 @@ Examples:
         run_minervini(config)
     elif args.screener == "momentum":
         run_momentum(config)
-    elif args.screener == "vcp":
-        run_vcp(config)
 
 
 if __name__ == "__main__":

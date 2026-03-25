@@ -24,7 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from minervini_screener import INDEX_MAP, get_all_us_tickers
 from filters import (
     check_new_high_rs, LIQUIDITY_PARAMS,
-    download_all_data, filter_invalid_tickers, filter_liquidity_batch
+    download_all_data, filter_invalid_tickers, filter_liquidity_batch,
+    filter_etf_and_oil
 )
 
 NUM_WORKERS = max(1, cpu_count() - 1)
@@ -252,6 +253,11 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
                 tickers.extend(getter())
                 index_names.append(name)
         tickers = list(dict.fromkeys(tickers))
+        
+        # Filter out ETFs and oil/energy stocks
+        tickers, excluded_tickers = filter_etf_and_oil(tickers)
+        if excluded_tickers:
+            print(f"\n  Excluded {len(excluded_tickers)} ETFs/oil-energy stocks")
     else:
         tickers = [t.upper() for t in tickers]
         index_names = ["Custom"]

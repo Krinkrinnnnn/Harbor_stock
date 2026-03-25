@@ -29,6 +29,52 @@ LIQUIDITY_PARAMS = {
     "valid_exchanges": ["NYSE", "NASDAQ", "AMEX"],  # Only major US exchanges
 }
 
+# Common ETFs to exclude from stock screeners
+EXCLUDED_ETFS = {
+    # Major Index ETFs
+    "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VEA", "VWO", "EFA", "EEM",
+    "IVV", "VO", "VB", "VTV", "VUG", "VGT", "VGK", "VPL", "VXUS", "BND",
+    "AGG", "TLT", "IEF", "SHY", "LQD", "HYG", "JNK", "MUB", "TIP",
+    # Sector ETFs
+    "XLF", "XLK", "XLV", "XLE", "XLI", "XLP", "XLY", "XLU", "XLB", "XLRE", "XLC",
+    "XOP", "OIH", "KBE", "KRE", "SMH", "SOXX", "IGV", "HACK", "BOTZ", "ARKK",
+    "ARKW", "ARKG", "ARKF", "ARKQ", "ICLN", "TAN", "LIT", "REMX", "GDX", "GDXJ",
+    "SLV", "GLD", "USO", "UNG", "DBA", "DBC", "PDBC",
+    # Leveraged/Inverse ETFs
+    "TQQQ", "SQQQ", "SPXL", "SPXS", "UPRO", "SPXU", "UDOW", "SDOW",
+    "TNA", "TZA", "LABU", "LABD", "NUGT", "DUST", "JNUG", "JDST",
+    # Bond ETFs
+    "BND", "BNDX", "VCIT", "VCSH", "VGIT", "VGLT", "BSV", "BIV", "BLV",
+    # International ETFs
+    "EWJ", "EWZ", "EWT", "EWY", "EWW", "EWG", "EWU", "EWL", "EWA", "EWC",
+    "FXI", "MCHI", "KWEB", "ASHR", "EEM", "VWO",
+    # Commodity ETFs
+    "USO", "UCO", "SCO", "UNG", "BOIL", "KOLD", "GLD", "IAU", "SLV",
+    "DBA", "CORN", "WEAT", "SOYB",
+    # Volatility ETFs
+    "VXX", "VIXY", "UVXY", "SVXY",
+}
+
+# Oil/Energy sector tickers to exclude
+EXCLUDED_OIL_ENERGY = {
+    # Major Oil Companies
+    "XOM", "CVX", "COP", "EOG", "PXD", "MPC", "PSX", "VLO", "HES", "DVN",
+    "OXY", "FANG", "HES", "MRO", "APA", "CTRA", "EQT", "AR", "OVV",
+    "COP", "HAL", "SLB", "BKR", "FTI", "NOV", "CHX", "LBRT",
+    # Oil Services
+    "SLB", "HAL", "BKR", "FTI", "NOV", "CHX", "LBRT", "PTEN", "HP",
+    "RIG", "VAL", "NE", "DO", "BORR", "SDRL",
+    # Midstream/Pipeline
+    "ET", "EPD", "ETP", "MPLX", "PAA", "PAGP", "WMB", "KMI", "OKE",
+    "TRGP", "AM", "GEL", "NS", "CEQP", "HESM", "SMLP",
+    # Refining
+    "MPC", "PSX", "VLO", "PBF", "DK", "CVI", "DINO", "CLMT",
+    # Exploration & Production
+    "XOM", "CVX", "COP", "EOG", "PXD", "DVN", "OXY", "FANG", "HES",
+    "MRO", "APA", "CTRA", "EQT", "AR", "OVV", "MTDR", "PR", "SM",
+    "CIVI", "GPOR", "RRC", "SU", "CNQ", "CVE", "IMO", "TRP",
+}
+
 NEW_HIGH_RS_PARAMS = {
     "lookback_days": 252,  # 1 year
     "confirm_days": 5,      # Must be at new high for this many days
@@ -41,6 +87,40 @@ ADR_PARAMS = {
 
 # Ticker substrings that indicate invalid/warrant/share classes
 INVALID_TICKER_SUBSTRINGS = ['.W', '-W', '-P', '.P', '-R', '.R', '^', '/', '$', '.U', '.PR', 'PR']
+
+
+def is_etf_or_oil(ticker):
+    """
+    Check if a ticker is an ETF or oil/energy stock.
+    
+    Args:
+        ticker: Stock symbol
+        
+    Returns:
+        bool: True if ticker should be excluded (is ETF or oil/energy)
+    """
+    ticker_upper = ticker.upper().strip()
+    return ticker_upper in EXCLUDED_ETFS or ticker_upper in EXCLUDED_OIL_ENERGY
+
+
+def filter_etf_and_oil(tickers):
+    """
+    Filter out ETFs and oil/energy stocks from a list of tickers.
+    
+    Args:
+        tickers: List of stock symbols
+        
+    Returns:
+        tuple: (valid_tickers, excluded_tickers)
+    """
+    valid = []
+    excluded = []
+    for t in tickers:
+        if is_etf_or_oil(t):
+            excluded.append(t)
+        else:
+            valid.append(t)
+    return valid, excluded
 
 
 def filter_invalid_tickers(tickers):
