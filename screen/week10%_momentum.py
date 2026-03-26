@@ -23,7 +23,7 @@ from multiprocessing import Pool, cpu_count
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from minervini_screener import INDEX_MAP, get_all_us_tickers
 from filters import (
-    check_new_high_rs, LIQUIDITY_PARAMS,
+    check_new_high_rs, check_earnings, LIQUIDITY_PARAMS,
     download_all_data, filter_invalid_tickers, filter_liquidity_batch
 )
 
@@ -262,6 +262,7 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
     
     enable_liquidity = config.get("enable_liquidity_filter", True)
     enable_new_high_rs = config.get("enable_new_high_rs", True)
+    enable_earnings = config.get("enable_earnings_filter", True)
 
     # Collect tickers
     if tickers is None:
@@ -297,6 +298,7 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
     print(f"\n  Filters:")
     print(f"    Liquidity Filter: {'ON' if enable_liquidity else 'OFF'} (21d avg $vol >= $50M)")
     print(f"    New High RS Flag: {'ON' if enable_new_high_rs else 'OFF'}")
+    print(f"    Earnings Filter: {'ON' if enable_earnings else 'OFF'} (exclude within 7 days)")
     
     print(f"\n  Conditions (all configurable in SCREENER_PARAMS):")
     print(f"    1. Price >= ${params['min_price']:.0f}")
@@ -328,6 +330,28 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
 
     if not liquid_tickers:
         print(f"\n  No liquid stocks found. Check data download above.")
+        return pd.DataFrame()
+
+    # ==========================================
+    # PHASE 2.5: Earnings date filter (optional)
+    # ==========================================
+    if enable_earnings:
+        print(f"\n  [Phase 2.5] Checking earnings dates (excl. within 7 days)...")
+        safe_tickers = set()
+        excluded_count = 0
+        for ticker in liquid_tickers:
+            passes, details = check_earnings(ticker)
+            if passes:
+                safe_tickers.add(ticker)
+            else:
+                excluded_count += 1
+                if details.get("days_until_earnings") is not None:
+                    print(f"    Excluded {ticker}: {details['reason']} ({details['days_until_earnings']}d)")
+        print(f"    Safe stocks: {len(safe_tickers)}/{len(liquid_tickers)} ({excluded_count} excluded)")
+        liquid_tickers = safe_tickers
+
+    if not liquid_tickers:
+        print(f"\n  No stocks remaining after filters.")
         return pd.DataFrame()
 
     # ==========================================
@@ -433,6 +457,7 @@ if __name__ == "__main__":
                         help="Indices to scan (default: all)")
     parser.add_argument("--no-liquidity", action="store_true", help="Disable liquidity filter")
     parser.add_argument("--no-rs-flag", action="store_true", help="Disable new high RS flag")
+    parser.add_argument("--no-earnings", action="store_true", help="Disable earnings date filter")
     args = parser.parse_args()
 
     tickers = None
@@ -445,6 +470,7 @@ if __name__ == "__main__":
     config = {
         "enable_liquidity_filter": not args.no_liquidity,
         "enable_new_high_rs": not args.no_rs_flag,
+        "enable_earnings_filter": not args.no_earnings,
     }
 
     run_screener(tickers, indices=args.index, config=config)

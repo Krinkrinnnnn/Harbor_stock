@@ -450,6 +450,103 @@ def check_adr(ticker, params=None, df=None):
         return False, details
 
 
+EARNINGS_PARAMS = {
+    "exclude_days_before": 7,   # Skip stocks with earnings within 7 days
+    "exclude_days_after": 1,    # Skip stocks that reported earnings within 1 day
+}
+
+
+def check_earnings(ticker, params=None):
+    """
+    Check if a stock has upcoming or recent earnings that should be avoided.
+    Returns (passes, details) where passes=True means safe to trade (no earnings near).
+    
+    Args:
+        ticker: Stock symbol
+        params: Optional override parameters
+        
+    Returns:
+        tuple: (passes: bool, details: dict)
+    """
+    if params is None:
+        params = EARNINGS_PARAMS
+    
+    details = {
+        "ticker": ticker,
+        "next_earnings_date": None,
+        "days_until_earnings": None,
+        "last_earnings_date": None,
+        "days_since_earnings": None,
+        "passes": True,
+        "reason": "no_earnings_found",
+    }
+    
+    try:
+        stock = yf.Ticker(ticker)
+        cal = stock.calendar
+        
+        if cal is None:
+            details["reason"] = "no_calendar_data"
+            return True, details
+        
+        # Handle both dict and DataFrame formats
+        earnings_date = None
+        if isinstance(cal, dict):
+            raw = cal.get("Earnings Date")
+            if raw is None:
+                details["reason"] = "no_earnings_date_found"
+                return True, details
+            # Could be a list of dates
+            if isinstance(raw, (list, np.ndarray)):
+                earnings_date = raw[0] if raw else None
+            else:
+                earnings_date = raw
+        elif isinstance(cal, pd.DataFrame) and not cal.empty:
+            if 'Earnings Date' in cal.index:
+                val = cal.loc['Earnings Date']
+                if isinstance(val, pd.Series):
+                    earnings_date = val.iloc[0]
+                else:
+                    earnings_date = val
+        
+        if earnings_date is None:
+            details["reason"] = "no_earnings_date_found"
+            return True, details
+        
+        # Convert to date object
+        if isinstance(earnings_date, str):
+            earnings_date = pd.to_datetime(earnings_date).date()
+        elif hasattr(earnings_date, 'date'):
+            earnings_date = earnings_date
+        elif isinstance(earnings_date, datetime):
+            earnings_date = earnings_date.date()
+        
+        today = datetime.now().date()
+        days_diff = (earnings_date - today).days
+        
+        details["next_earnings_date"] = str(earnings_date)
+        details["days_until_earnings"] = days_diff
+        
+        # Check if earnings are within the exclusion window
+        if 0 <= days_diff <= params["exclude_days_before"]:
+            details["passes"] = False
+            details["reason"] = f"earnings_in_{days_diff}_days"
+            return False, details
+        
+        # Check if earnings just happened (post-earnings volatility)
+        if -params["exclude_days_after"] <= days_diff < 0:
+            details["passes"] = False
+            details["reason"] = f"earnings_{abs(days_diff)}_days_ago"
+            return False, details
+        
+        details["reason"] = "safe"
+        return True, details
+        
+    except Exception as e:
+        details["reason"] = f"error: {str(e)}"
+        return True, details
+
+
 def filter_liquidity_batch(tickers, params=None):
     """
     Check liquidity for a batch of tickers using a single yfinance download call 
