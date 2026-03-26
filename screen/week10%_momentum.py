@@ -444,6 +444,45 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
 
     print(f"\n{'='*90}\n")
 
+    # Save results
+    try:
+        os.makedirs("screen_result", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        filepath = f"screen_result/week10_momentum_{timestamp}.txt"
+        
+        all_tickers = sorted(set(r["ticker"] for r in results if r["price"] > 0))
+        signal_tickers = sorted(set(r["ticker"] for r in signal_stocks))
+        near_tickers = sorted(set(r["ticker"] for r in results if r["momentum_score"] >= 60 and r["price"] > 0))
+        
+        with open(filepath, "w") as f:
+            f.write(f"# Weekly 10% Momentum Screener Results\n")
+            f.write(f"# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"# Total analyzed: {len(all_tickers)}\n")
+            f.write(f"# Signals (7/7): {len(signal_tickers)}\n")
+            f.write(f"# Near-signal (score >= 60): {len(near_tickers)}\n")
+            f.write(f"# Conditions: Price>=15, >MA200, >MA50, >MA10&MA21, 5d>=10%, $vol>=50M, RS>=80\n")
+            f.write(f"# Earnings filter: {'ON' if enable_earnings else 'OFF'}\n\n")
+            
+            if signal_tickers:
+                f.write(f"[SIGNALS]\n")
+                for t in signal_tickers:
+                    f.write(f"{t}\n")
+                f.write(f"\n")
+            
+            if near_tickers:
+                f.write(f"[NEAR-SIGNALS (score >= 60)]\n")
+                for t in near_tickers:
+                    f.write(f"{t}\n")
+                f.write(f"\n")
+            
+            f.write(f"[ALL ANALYZED]\n")
+            for t in all_tickers:
+                f.write(f"{t}\n")
+        
+        print(f"  Results saved to: {filepath}")
+    except Exception as e:
+        print(f"  Could not save results: {e}")
+
     return pd.DataFrame(results)
 
 
