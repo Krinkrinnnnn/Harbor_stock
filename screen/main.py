@@ -416,6 +416,13 @@ Examples:
         help="Verbose output"
     )
     
+    parser.add_argument(
+        "--check-correlation",
+        nargs="+",
+        metavar="TICKER",
+        help="Run standalone correlation check on a list of tickers (e.g., --check-correlation NVDA AMD ARM AVGO)"
+    )
+    
     args = parser.parse_args()
     
     # Load config
@@ -444,6 +451,17 @@ Examples:
         
     if args.verbose:
         config["verbose"] = True
+    
+    # Standalone correlation check
+    if args.check_correlation:
+        tickers = [t.upper() for t in args.check_correlation]
+        if len(tickers) < 2:
+            print("Error: Need at least 2 tickers for correlation check.")
+            return
+        print(f"\nRunning correlation check on {len(tickers)} tickers...")
+        from correlation import check_correlation_warnings
+        check_correlation_warnings(tickers, threshold=0.7, days=40)
+        return
     
     # Run selected screener(s)
     if args.screener == "all":
