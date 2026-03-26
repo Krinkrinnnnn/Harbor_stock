@@ -93,6 +93,9 @@ cd screen && python "week10%_momentum.py"
 # Weekly 10% Momentum (custom tickers only)
 cd screen && python "week10%_momentum.py" --tickers NVDA AMD ARM TSLA
 
+# Weekly 10% Momentum (disable earnings filter)
+cd screen && python "week10%_momentum.py" --no-earnings
+
 # All screeners at once
 cd screen && python main.py
 
@@ -114,6 +117,7 @@ cd screen && python main.py --check-correlation NVDA AMD ARM AVGO SMCI
 - **Liquidity**: Market cap > $2B, 21-day avg volume > $50M
 - **ETF/Oil Filter**: Excludes common ETFs and oil/energy stocks
 - **ADR Filter**: Minimum 4% average daily range for momentum stocks
+- **Earnings Filter**: Excludes stocks with earnings within 7 days (configurable, toggle with `--no-earnings`)
 
 ## File Structure
 
