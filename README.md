@@ -62,7 +62,7 @@ python3 screen/backtest_runner.py --cache-file screen_result/screener_minervini_
 | Minervini | Price > 150MA & 200MA, 200MA trending up, price within 25% of 52w high |
 | Momentum | Within 15% of 52w high, 1M change > 5%, RS Score > 70 |
 | VCP + RS | RS Score > 60, volatility < 12%, breakout, positive Force Index |
-| Week 10% Momentum | Price > 15, Price > MA10/MA21/MA50/MA200, 5d gain >= 10%, RS >= 80, $vol >= $50M |
+| Week 10% Momentum | Price > 15, Price > MA10/MA21/MA50/MA200, 5d gain >= 10%, RS >= 60, $vol >= $50M |
 
 ## Daily Screener Tasks
 
