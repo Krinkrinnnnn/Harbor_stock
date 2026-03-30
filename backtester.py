@@ -298,13 +298,16 @@ def run_backtest(symbol, years=3, initial_capital=100000, params=None, plot=True
     p = params or VCP_STRATEGY_PARAMS
 
     # Fetch data
-    print(f"\nFetching {years} years of data for {symbol}...")
-    period = f"{years}y"
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(period=period)
-    if df.empty:
+    from fetch_data import fetch_stock_data
+    df, _ = fetch_stock_data(symbol, years)
+    
+    if df is None or df.empty:
         print(f"Error: No data for {symbol}")
         return None
+
+    # For Backtrader, convert column names to what PandasData expects (or lowercase them)
+    # fetch_data.py capitalizes columns, so we can map them back or tell PandasData to use Capitalized
+    df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
 
     print(f"Loaded {len(df)} trading days from {df.index[0].strftime('%Y-%m-%d')} to {df.index[-1].strftime('%Y-%m-%d')}")
 
@@ -436,6 +439,13 @@ def run_backtest(symbol, years=3, initial_capital=100000, params=None, plot=True
     if total_trades > 0:
         avg_duration = ta.get('len', {}).get('average', 0)
         summary_text.append(f"  {'Avg Holding (bars):':<30} {avg_duration:>12.1f}")
+    else:
+        summary_text.append("\n  [ ⚠️ NO TRADES EXECUTED ]")
+        summary_text.append("  Explanation: The stock never met the strategy's strict entry criteria")
+        summary_text.append("  during this period. This strategy requires strong bullish indicators")
+        summary_text.append("  (Close > SMA50, EMA13 > EMA120, positive Force Index, Breakout).")
+        summary_text.append("  If you only requested 1 year, the first 120+ days are consumed just")
+        summary_text.append("  to calculate the moving averages, leaving less time for actual trading.")
 
     summary_text.append("\n" + "=" * 70)
     

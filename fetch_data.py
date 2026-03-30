@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 from vcp_rs_analyzer import calculate_daily_signals, print_signal_summary
-from chart_plotter import MarketSmithChart
 
 
 def fetch_stock_data(symbol, years=1, benchmark_symbol="^GSPC"):
@@ -58,6 +57,7 @@ if __name__ == "__main__":
         print(f"  VCP Signal: {'Yes' if latest['VCP_Signal'] else 'No'}")
         print(f"  Breakout Signal: {'Yes' if latest['Signal'] else 'No'}")
         
+        from chart_plotter import MarketSmithChart
         chart = MarketSmithChart(figsize=(16, 10))
         save_path = f"{symbol}_analysis.png"
         chart.plot(df_with_signals, symbol, save_path)
