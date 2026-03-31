@@ -21,6 +21,7 @@ import pandas as pd
 from datetime import datetime
 
 SCREEN_DIR = os.path.dirname(os.path.abspath(__file__))
+SCREEN_RESULT_DIR = os.path.join(SCREEN_DIR, "screen_result")
 sys.path.insert(0, os.path.join(SCREEN_DIR, "screener_list"))
 
 DEFAULT_CONFIG = {
@@ -72,10 +73,21 @@ DEFAULT_CONFIG = {
     # Week 10% momentum screener params
     "week10_momentum": {
         "min_price": 15.0,
+        "max_price": 10000.0,
+        "sma_long_period": 200,
+        "sma_medium_period": 50,
+        "sma_short_period": 10,
+        "sma_mid_period": 21,
         "min_rs_score": 60,
+        "min_rs_line": 1.0,
         "accumulation_days": 5,
         "accumulation_threshold": 0.10,
         "min_volume_avg": 50000000,
+        "volume_period": 21,
+        "min_price_pct_52w_high": 0.85,
+        "ema_period": 13,
+        "min_volume_ratio": 1.0,
+        "data_period": "1y",
     },
     
     # Oversold screener params (Spring Trap)
@@ -213,14 +225,14 @@ def run_stage2(config):
     
     if config.get("save_results", True):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        os.makedirs("screen_result", exist_ok=True)
+        os.makedirs(SCREEN_RESULT_DIR, exist_ok=True)
         
         tickers = _get_passing_tickers(result)
         sector_df = _enrich_with_sectors(tickers)
         _print_sector_summary(sector_df)
         
-        filepath_txt = f"screen_result/screener_stage2_{timestamp}.txt"
-        filepath_csv = f"screen_result/screener_stage2_{timestamp}.csv"
+        filepath_txt = f"{SCREEN_RESULT_DIR}/screener_stage2_{timestamp}.txt"
+        filepath_csv = f"{SCREEN_RESULT_DIR}/screener_stage2_{timestamp}.csv"
         _save_screened_results(filepath_txt, filepath_csv, tickers, sector_df)
         
         # --- Correlation Check ---
@@ -259,14 +271,14 @@ def run_momentum(config):
     
     if config.get("save_results", True):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        os.makedirs("screen_result", exist_ok=True)
+        os.makedirs(SCREEN_RESULT_DIR, exist_ok=True)
         
         tickers = _get_passing_tickers(result)
         sector_df = _enrich_with_sectors(tickers)
         _print_sector_summary(sector_df)
         
-        filepath_txt = f"screen_result/screener_momentum_{timestamp}.txt"
-        filepath_csv = f"screen_result/screener_momentum_{timestamp}.csv"
+        filepath_txt = f"{SCREEN_RESULT_DIR}/screener_momentum_{timestamp}.txt"
+        filepath_csv = f"{SCREEN_RESULT_DIR}/screener_momentum_{timestamp}.csv"
         _save_screened_results(filepath_txt, filepath_csv, tickers, sector_df)
         
         # --- Correlation Check ---
@@ -306,14 +318,14 @@ def run_week10_momentum(config):
     
     if config.get("save_results", True):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        os.makedirs("screen_result", exist_ok=True)
+        os.makedirs(SCREEN_RESULT_DIR, exist_ok=True)
         
         tickers = _get_passing_tickers(result)
         sector_df = _enrich_with_sectors(tickers)
         _print_sector_summary(sector_df)
         
-        filepath_txt = f"screen_result/screener_week10_momentum_{timestamp}.txt"
-        filepath_csv = f"screen_result/screener_week10_momentum_{timestamp}.csv"
+        filepath_txt = f"{SCREEN_RESULT_DIR}/screener_week10_momentum_{timestamp}.txt"
+        filepath_csv = f"{SCREEN_RESULT_DIR}/screener_week10_momentum_{timestamp}.csv"
         _save_screened_results(filepath_txt, filepath_csv, tickers, sector_df)
     
     return result
@@ -333,14 +345,14 @@ def run_oversold(config):
     
     if config.get("save_results", True):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        os.makedirs("screen_result", exist_ok=True)
+        os.makedirs(SCREEN_RESULT_DIR, exist_ok=True)
         
         tickers = _get_passing_tickers(result)
         sector_df = _enrich_with_sectors(tickers)
         _print_sector_summary(sector_df)
         
-        filepath_txt = f"screen_result/screener_oversold_{timestamp}.txt"
-        filepath_csv = f"screen_result/screener_oversold_{timestamp}.csv"
+        filepath_txt = f"{SCREEN_RESULT_DIR}/screener_oversold_{timestamp}.txt"
+        filepath_csv = f"{SCREEN_RESULT_DIR}/screener_oversold_{timestamp}.csv"
         _save_screened_results(filepath_txt, filepath_csv, tickers, sector_df)
     
     return result

@@ -42,7 +42,9 @@ NUM_WORKERS = max(1, cpu_count() - 1)
 
 def get_all_us_tickers(filename="tickers.txt"):
     """Load all US stock tickers from a specific file."""
-    tickers_file = os.path.join(os.path.dirname(__file__), filename)
+    # Look in parent directory (screen/) since screener_list is a subdirectory
+    screen_dir = os.path.dirname(os.path.dirname(__file__))
+    tickers_file = os.path.join(screen_dir, filename)
     if not os.path.exists(tickers_file):
         print(f"Error: {tickers_file} not found. Run tickers.py first.")
         return []

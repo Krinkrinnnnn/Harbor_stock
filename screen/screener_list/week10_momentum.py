@@ -21,6 +21,8 @@ import sys, os
 from multiprocessing import Pool, cpu_count
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+SCREEN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCREEN_RESULT_DIR = os.path.join(SCREEN_DIR, "screen_result")
 from stage2_screener import INDEX_MAP, get_all_us_tickers
 from filters import (
     check_new_high_rs, check_earnings, LIQUIDITY_PARAMS,
@@ -446,9 +448,9 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
 
     # Save results
     try:
-        os.makedirs("screen_result", exist_ok=True)
+        os.makedirs(SCREEN_RESULT_DIR, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        filepath = f"screen_result/week10_momentum_{timestamp}.txt"
+        filepath = f"{SCREEN_RESULT_DIR}/week10_momentum_{timestamp}.txt"
         
         all_tickers = sorted(set(r["ticker"] for r in results if r["price"] > 0))
         signal_tickers = sorted(set(r["ticker"] for r in signal_stocks))

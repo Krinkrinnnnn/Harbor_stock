@@ -65,8 +65,9 @@ def check_market_regime():
 
 def load_tickers():
     """Load tickers from screen/tickers.txt (preferred) or S&P 500 fallback."""
-    # Try screen/tickers.txt
-    path = os.path.join(SCREEN_DIR, "tickers.txt")
+    # Look in parent directory (screen/) since screener_list is a subdirectory
+    screen_parent_dir = os.path.dirname(SCREEN_DIR)
+    path = os.path.join(screen_parent_dir, "tickers.txt")
     if os.path.exists(path):
         with open(path, "r") as f:
             tickers = [line.strip() for line in f if line.strip() and not line.startswith("#")]
