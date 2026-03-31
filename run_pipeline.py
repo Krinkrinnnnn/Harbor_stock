@@ -21,6 +21,7 @@ from datetime import datetime
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "screen"))
+sys.path.insert(0, os.path.join(ROOT_DIR, "screen", "screener_list"))
 sys.path.insert(0, os.path.join(ROOT_DIR, "market_health"))
 
 from backtester import run_backtest, VCP_STRATEGY_PARAMS

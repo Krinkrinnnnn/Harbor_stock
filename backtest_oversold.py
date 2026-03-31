@@ -36,7 +36,7 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # DRY: Import RSI and MACD from oversold_screener
-from screen.oversold_screener import calc_rsi, calc_macd
+from screen.screener_list.oversold_screener import calc_rsi, calc_macd
 from fetch_data import fetch_stock_data
 
 # Backtesting framework

@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore")
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 SCREEN_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCREEN_DIR, ".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCREEN_DIR, "..", ".."))
 RESULT_DIR = os.path.join(PROJECT_ROOT, "screen", "screen_result")
 CACHE_PATH = os.path.join(RESULT_DIR, "oversold_data.parquet")
 OUTPUT_CSV = os.path.join(RESULT_DIR, "oversold_candidates.csv")

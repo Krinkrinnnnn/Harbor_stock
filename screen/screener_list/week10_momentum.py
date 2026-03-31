@@ -1,7 +1,7 @@
 """
-Momentum Stock Screener
-=======================
-Screens for stocks with strong momentum characteristics.
+Week 10% Momentum Stock Screener
+================================
+Screens for stocks with strong momentum and 10% weekly accumulation.
 
 Architecture:
     Phase 1: Sequential download of all ticker data (single process)
@@ -9,8 +9,8 @@ Architecture:
     Phase 3: Parallel technical analysis (all CPU cores)
 
 Usage:
-    python3 momentum_screener.py
-    python3 momentum_screener.py --tickers AAPL TSLA NVDA
+    python3 week10_momentum.py
+    python3 week10_momentum.py --tickers AAPL TSLA NVDA
 """
 
 import yfinance as yf
@@ -19,13 +19,12 @@ import numpy as np
 from datetime import datetime
 import sys, os
 from multiprocessing import Pool, cpu_count
-
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stage2_screener import INDEX_MAP, get_all_us_tickers
 from filters import (
-    check_new_high_rs, LIQUIDITY_PARAMS,
-    download_all_data, filter_invalid_tickers, filter_liquidity_batch,
-    filter_etf_and_oil
+    check_new_high_rs, check_earnings, LIQUIDITY_PARAMS,
+    download_all_data, filter_invalid_tickers, filter_liquidity_batch
 )
 
 NUM_WORKERS = max(1, cpu_count() - 1)
@@ -35,19 +34,30 @@ NUM_WORKERS = max(1, cpu_count() - 1)
 # SCREENER PARAMETERS
 # ==========================================
 SCREENER_PARAMS = {
-    "min_price_pct_52w_high": 0.85,
-    "min_price_change_1m": 0.05,
-    "min_price_change_3m": 0.10,
-    "min_rs_score": 70,
-    "min_rs_line": 1.0,
-    "sma_short_period": 20,
-    "sma_medium_period": 50,
-    "sma_long_period": 200,
-    "ema_period": 13,
-    "min_volume_avg": 500000,
-    "min_volume_ratio": 1.0,
-    "min_price": 20.0,
+    # --- Price Filters ---
+    "min_price": 15.0,                  # Condition 1: Price > 15
     "max_price": 10000.0,
+
+    # --- Moving Average Conditions ---
+    "sma_long_period": 200,             # Condition 2: Price > MA200
+    "sma_medium_period": 50,            # Condition 3: Price > MA50
+    "sma_short_period": 10,             # Condition 4a: Price > MA10
+    "sma_mid_period": 21,               # Condition 4b: Price > MA21
+
+    # --- Accumulation Condition ---
+    "accumulation_days": 5,             # Condition 5: 5-day accumulation window
+    "accumulation_threshold": 0.10,     # Condition 5: >= 10% increase over window
+
+    # --- Volume Filter (21-day avg dollar volume) ---
+    "min_volume_avg": 50000000,         # Condition 6: 21-day avg dollar volume >= $50M (handled by filters.py)
+    "volume_period": 21,                # Matches filters.py LIQUIDITY_PARAMS
+
+    # --- Other Parameters ---
+    "min_price_pct_52w_high": 0.85,
+    "min_rs_score": 60,                 # Condition 7: RS Rating >= 60
+    "min_rs_line": 1.0,
+    "ema_period": 13,
+    "min_volume_ratio": 1.0,
     "data_period": "1y",
 }
 
@@ -97,6 +107,8 @@ def calculate_momentum(df, benchmark_df, params):
         "change_6m": 0,
         "rs_line": 0,
         "rs_score": 0,
+        "above_ma10": False,
+        "above_ma21": False,
         "above_sma20": False,
         "above_sma50": False,
         "above_sma200": False,
@@ -104,6 +116,8 @@ def calculate_momentum(df, benchmark_df, params):
         "ema_bullish": False,
         "volume_avg": 0,
         "volume_ratio": 0,
+        "accumulation_5d": 0,
+        "accumulation_pass": False,
         "momentum_score": 0,
         "signal": False,
         "signal_strength": 0,
@@ -144,11 +158,15 @@ def calculate_momentum(df, benchmark_df, params):
     result["volume_ratio"] = float(df['Volume'].iloc[-1]) / vol_avg_20 if vol_avg_20 > 0 else 0
 
     # Moving Averages
-    sma20 = df['Close'].rolling(params["sma_short_period"]).mean()
+    sma10 = df['Close'].rolling(params["sma_short_period"]).mean()
+    sma21 = df['Close'].rolling(params["sma_mid_period"]).mean()
+    sma20 = df['Close'].rolling(20).mean()
     sma50 = df['Close'].rolling(params["sma_medium_period"]).mean()
     sma200 = df['Close'].rolling(params["sma_long_period"]).mean()
     ema13 = df['Close'].ewm(span=params["ema_period"], adjust=False).mean()
 
+    result["above_ma10"] = price > float(sma10.iloc[-1])
+    result["above_ma21"] = price > float(sma21.iloc[-1])
     result["above_sma20"] = price > float(sma20.iloc[-1])
     result["above_sma50"] = price > float(sma50.iloc[-1])
     result["above_sma200"] = price > float(sma200.iloc[-1])
@@ -170,25 +188,34 @@ def calculate_momentum(df, benchmark_df, params):
                 if rs_max > rs_min:
                     result["rs_score"] = ((result["rs_line"] - rs_min) / (rs_max - rs_min)) * 100
 
+    # 5-day accumulation (Condition 5)
+    accum_days = params["accumulation_days"]
+    if len(df) >= accum_days:
+        price_now = float(df['Close'].iloc[-1])
+        price_before = float(df['Close'].iloc[-accum_days])
+        result["accumulation_5d"] = (price_now / price_before - 1) if price_before > 0 else 0
+        result["accumulation_pass"] = result["accumulation_5d"] >= params["accumulation_threshold"]
+
     # Momentum Score
     score = 0
-    if result["pct_from_52w_high"] >= params["min_price_pct_52w_high"]: score += 20
-    if result["change_1m"] >= params["min_price_change_1m"]: score += 15
-    if result["change_3m"] >= params["min_price_change_3m"]: score += 15
-    if result["rs_score"] >= params["min_rs_score"]: score += 20
-    if result["above_sma50"]: score += 10
-    if result["above_sma200"]: score += 10
-    if result["sma_alignment"]: score += 10
+    if result["price"] >= params["min_price"]: score += 10          # Condition 1
+    if result["above_sma200"]: score += 15                           # Condition 2
+    if result["above_sma50"]: score += 15                            # Condition 3
+    if result["above_ma10"] and result["above_ma21"]: score += 15    # Condition 4
+    if result["accumulation_pass"]: score += 20                      # Condition 5
+    if result["volume_avg"] * price >= params["min_volume_avg"]: score += 10  # Condition 6
+    if result["rs_line"] >= params["min_rs_line"]: score += 15        # Condition 7
 
     result["momentum_score"] = score
 
     conditions = [
-        result["pct_from_52w_high"] >= params["min_price_pct_52w_high"],
-        result["change_1m"] >= params["min_price_change_1m"],
-        result["above_sma50"],
-        result["above_sma200"],
-        result["rs_score"] >= params["min_rs_score"],
-        result["volume_avg"] >= params["min_volume_avg"],
+        result["price"] >= params["min_price"],                    # Condition 1: Price >= 15
+        result["above_sma200"],                                     # Condition 2: Price > MA200
+        result["above_sma50"],                                      # Condition 3: Price > MA50
+        result["above_ma10"] and result["above_ma21"],              # Condition 4: Price > MA10 & MA21
+        result["accumulation_pass"],                                # Condition 5: 5d gain >= 10%
+        result["volume_avg"] * price >= params["min_volume_avg"],   # Condition 6: 21d avg $volume >= $50M
+        result["rs_line"] >= params["min_rs_line"],                  # Condition 7: RS Line > 1
     ]
     result["signal"] = all(conditions)
     result["signal_strength"] = sum(conditions) / len(conditions) * 100
@@ -235,6 +262,7 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
     
     enable_liquidity = config.get("enable_liquidity_filter", True)
     enable_new_high_rs = config.get("enable_new_high_rs", True)
+    enable_earnings = config.get("enable_earnings_filter", True)
 
     # Collect tickers
     if tickers is None:
@@ -253,17 +281,12 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
                 tickers.extend(getter())
                 index_names.append(name)
         tickers = list(dict.fromkeys(tickers))
-        
-        # Filter out ETFs and oil/energy stocks
-        tickers, excluded_tickers = filter_etf_and_oil(tickers)
-        if excluded_tickers:
-            print(f"\n  Excluded {len(excluded_tickers)} ETFs/oil-energy stocks")
     else:
         tickers = [t.upper() for t in tickers]
         index_names = ["Custom"]
 
     print(f"\n{'='*90}")
-    print(f"  MOMENTUM STOCK SCREENER")
+    print(f"  WEEKLY 10% MOMENTUM SCREENER")
     if config and config.get("tickers_file"):
         print(f"  Tickers File: {config['tickers_file']}")
     else:
@@ -273,14 +296,24 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
     print(f"{'='*90}")
     
     print(f"\n  Filters:")
-    print(f"    Liquidity Filter: {'ON' if enable_liquidity else 'OFF'} (Market Cap > $2B, Vol > $50M)")
+    print(f"    Liquidity Filter: {'ON' if enable_liquidity else 'OFF'} (21d avg $vol >= $50M)")
     print(f"    New High RS Flag: {'ON' if enable_new_high_rs else 'OFF'}")
+    print(f"    Earnings Filter: {'ON' if enable_earnings else 'OFF'} (exclude within 7 days)")
+    
+    print(f"\n  Conditions (all configurable in SCREENER_PARAMS):")
+    print(f"    1. Price >= ${params['min_price']:.0f}")
+    print(f"    2. Price > MA{params['sma_long_period']} (long-term trend)")
+    print(f"    3. Price > MA{params['sma_medium_period']} (medium-term trend)")
+    print(f"    4. Price > MA{params['sma_short_period']} & Price > MA{params['sma_mid_period']}")
+    print(f"    5. {params['accumulation_days']}-day accumulation >= {params['accumulation_threshold']*100:.0f}%")
+    print(f"    6. 21-day avg dollar volume >= ${params['min_volume_avg']/1e6:.0f}M")
+    print(f"    7. RS Line > {params['min_rs_line']} (outperforms S&P 500)")
 
     # ==========================================
     # PHASE 1: Download all data sequentially
     # ==========================================
-    print(f"\n  [Phase 1] Downloading data sequentially (1y period)...")
-    all_data = download_all_data(tickers, period="1y", chunk_size=100, pause=0.5)
+    print(f"\n  [Phase 1] Downloading data sequentially (1mo period)...")
+    all_data = download_all_data(tickers, period="1mo", chunk_size=200, pause=1.0)
 
     # ==========================================
     # PHASE 2: Filter for liquidity (no API calls)
@@ -297,6 +330,28 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
 
     if not liquid_tickers:
         print(f"\n  No liquid stocks found. Check data download above.")
+        return pd.DataFrame()
+
+    # ==========================================
+    # PHASE 2.5: Earnings date filter (optional)
+    # ==========================================
+    if enable_earnings:
+        print(f"\n  [Phase 2.5] Checking earnings dates (excl. within 7 days)...")
+        safe_tickers = set()
+        excluded_count = 0
+        for ticker in liquid_tickers:
+            passes, details = check_earnings(ticker)
+            if passes:
+                safe_tickers.add(ticker)
+            else:
+                excluded_count += 1
+                if details.get("days_until_earnings") is not None:
+                    print(f"    Excluded {ticker}: {details['reason']} ({details['days_until_earnings']}d)")
+        print(f"    Safe stocks: {len(safe_tickers)}/{len(liquid_tickers)} ({excluded_count} excluded)")
+        liquid_tickers = safe_tickers
+
+    if not liquid_tickers:
+        print(f"\n  No stocks remaining after filters.")
         return pd.DataFrame()
 
     # ==========================================
@@ -350,32 +405,34 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
     results.sort(key=lambda x: x["momentum_score"], reverse=True)
 
     rs_col = " RS>Hi" if enable_new_high_rs else ""
-    print(f"\n  {'Ticker':<7} {'Price':>8} {'52wHi%':>7} {'1M%':>6} {'3M%':>6} "
-          f"{'RS%':>5} {'SMA200':>6} {'Signal':>7} {'Score':>5}{rs_col}")
-    print(f"  {'-'*7} {'-'*8} {'-'*7} {'-'*6} {'-'*6} "
-          f"{'-'*5} {'-'*6} {'-'*7} {'-'*5}{'-'*6 if enable_new_high_rs else ''}")
+    print(f"\n  {'Ticker':<7} {'Price':>8} {'MA10':>5} {'MA21':>5} {'MA50':>5} {'MA200':>5} {'5d%':>6} {'RS%':>5} {'Signal':>7} {'Score':>5}{rs_col}")
+    print(f"  {'-'*7} {'-'*8} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*6} {'-'*5} {'-'*7} {'-'*5}{'-'*6 if enable_new_high_rs else ''}")
 
     for r in results:
         if r["price"] == 0:
             continue
-        sma200_str = "  +" if r["above_sma200"] else "  -"
+        ma10_str = "+" if r["above_ma10"] else "-"
+        ma21_str = "+" if r["above_ma21"] else "-"
+        ma50_str = "+" if r["above_sma50"] else "-"
+        ma200_str = "+" if r["above_sma200"] else "-"
         signal_str = "  + BUY" if r["signal"] else "  ---"
         rs_flag = f"  *RS" if enable_new_high_rs and r.get("new_high_rs", False) else ""
-        print(f"  {r['ticker']:<7} ${r['price']:>6.2f} {r['pct_from_52w_high']*100:>6.1f}% "
-              f"{r['change_1m']*100:>+5.1f} {r['change_3m']*100:>+5.1f} "
-              f"{r['rs_score']:>4.0f} {sma200_str:>6} {signal_str:>7} {r['momentum_score']:>5.0f}{rs_flag}")
+        print(f"  {r['ticker']:<7} ${r['price']:>6.2f} {ma10_str:>5} {ma21_str:>5} {ma50_str:>5} {ma200_str:>5} "
+              f"{r['accumulation_5d']*100:>+5.1f}% {r['rs_score']:>4.0f} {signal_str:>7} {r['momentum_score']:>5.0f}{rs_flag}")
 
     # Print top signals
     if signal_stocks:
         print(f"\n  {'='*86}")
-        print(f"  [+] MOMENTUM SIGNALS ({len(signal_stocks)} stocks)")
+        print(f"  [+] WEEKLY 10% MOMENTUM SIGNALS ({len(signal_stocks)} stocks)")
         print(f"  {'='*86}")
         for r in signal_stocks:
             rs_indicator = " *RS" if enable_new_high_rs and r.get("new_high_rs", False) else ""
             print(f"  * {r['ticker']:<6} ${r['price']:>8.2f}  "
-                  f"52w:{r['pct_from_52w_high']*100:.1f}%  "
-                  f"1M:{r['change_1m']*100:+.1f}%  "
-                  f"3M:{r['change_3m']*100:+.1f}%  "
+                  f"MA10:{('+' if r['above_ma10'] else '-'):>1}  "
+                  f"MA21:{('+' if r['above_ma21'] else '-'):>1}  "
+                  f"MA50:{('+' if r['above_sma50'] else '-'):>1}  "
+                  f"MA200:{('+' if r['above_sma200'] else '-'):>1}  "
+                  f"5d:{r['accumulation_5d']*100:+.1f}%  "
                   f"RS:{r['rs_score']:.0f}  Score:{r['momentum_score']:.0f}{rs_indicator}")
     else:
         print(f"\n  No momentum signals found at this time.")
@@ -386,6 +443,45 @@ def run_screener(tickers=None, params=None, benchmark_df=None, indices=None, con
                 print(f"    {r['ticker']:<6} ${r['price']:>8.2f}  Score:{r['momentum_score']:.0f}")
 
     print(f"\n{'='*90}\n")
+
+    # Save results
+    try:
+        os.makedirs("screen_result", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        filepath = f"screen_result/week10_momentum_{timestamp}.txt"
+        
+        all_tickers = sorted(set(r["ticker"] for r in results if r["price"] > 0))
+        signal_tickers = sorted(set(r["ticker"] for r in signal_stocks))
+        near_tickers = sorted(set(r["ticker"] for r in results if r["momentum_score"] >= 60 and r["price"] > 0))
+        
+        with open(filepath, "w") as f:
+            f.write(f"# Weekly 10% Momentum Screener Results\n")
+            f.write(f"# {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"# Total analyzed: {len(all_tickers)}\n")
+            f.write(f"# Signals (7/7): {len(signal_tickers)}\n")
+            f.write(f"# Near-signal (score >= 60): {len(near_tickers)}\n")
+            f.write(f"# Conditions: Price>=15, >MA200, >MA50, >MA10&MA21, 5d>=10%, $vol>=50M, RS>=80\n")
+            f.write(f"# Earnings filter: {'ON' if enable_earnings else 'OFF'}\n\n")
+            
+            if signal_tickers:
+                f.write(f"[SIGNALS]\n")
+                for t in signal_tickers:
+                    f.write(f"{t}\n")
+                f.write(f"\n")
+            
+            if near_tickers:
+                f.write(f"[NEAR-SIGNALS (score >= 60)]\n")
+                for t in near_tickers:
+                    f.write(f"{t}\n")
+                f.write(f"\n")
+            
+            f.write(f"[ALL ANALYZED]\n")
+            for t in all_tickers:
+                f.write(f"{t}\n")
+        
+        print(f"  Results saved to: {filepath}")
+    except Exception as e:
+        print(f"  Could not save results: {e}")
 
     return pd.DataFrame(results)
 
@@ -400,6 +496,7 @@ if __name__ == "__main__":
                         help="Indices to scan (default: all)")
     parser.add_argument("--no-liquidity", action="store_true", help="Disable liquidity filter")
     parser.add_argument("--no-rs-flag", action="store_true", help="Disable new high RS flag")
+    parser.add_argument("--no-earnings", action="store_true", help="Disable earnings date filter")
     args = parser.parse_args()
 
     tickers = None
@@ -412,6 +509,7 @@ if __name__ == "__main__":
     config = {
         "enable_liquidity_filter": not args.no_liquidity,
         "enable_new_high_rs": not args.no_rs_flag,
+        "enable_earnings_filter": not args.no_earnings,
     }
 
     run_screener(tickers, indices=args.index, config=config)

@@ -20,6 +20,7 @@ import yaml
 from datetime import datetime
 
 SCREEN_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(SCREEN_DIR, "screener_list"))
 
 DEFAULT_CONFIG = {
     "screener": "all",  # stage2, momentum, week10_momentum, oversold, all
