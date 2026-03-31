@@ -1,0 +1,39 @@
+# Harbor Stock Analysis System - Docker Compose
+# Optimized for Apple Silicon (ARM64 / M-series)
+#
+# Usage:
+#   docker compose build                    # Build the image
+#   docker compose up                       # Run default (market_regime.py)
+#
+#   Run ad-hoc scripts:
+#     docker compose run --rm harbor-engine python main.py --symbol AAPL
+#     docker compose run --rm harbor-engine python screen/screen_main.py
+#     docker compose run --rm harbor-engine python run_pipeline.py
+#     docker compose run --rm harbor-engine python run_backtest.py --symbol NVDA
+#     docker compose run --rm harbor-engine python market_health/market_regime.py
+#
+#   Interactive shell:
+#     docker compose run --rm harbor-engine bash
+
+services:
+  harbor-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # platform: linux/arm64  # Uncomment for Apple Silicon Macs only
+    volumes:
+      # Persist screener results (ticker lists, CSVs)
+      - ./screen/screen_result:/app/screen/screen_result
+      # Persist market regime state (JSON, parquet, tickers)
+      - ./market_health/screen_result:/app/market_health/screen_result
+      # Persist analysis charts and outputs
+      - ./output:/app/output
+      # Persist backtest results (charts, summaries)
+      - ./back_test_result:/app/back_test_result
+      # Persist market health charts (for notifier)
+      - ./market_health/output:/app/market_health/output
+    environment:
+      - TZ=Asia/Hong_Kong
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - FRED_API_KEY=${FRED_API_KEY}
+    # No ports exposed — this is a script runner, not a web server

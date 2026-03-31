@@ -1,7 +1,9 @@
 """
-Market Health Scoring System (0-4 Points)
-==========================================
-Calculates 4 indicators to determine market regime and buy confidence.
+Market Health Scoring System (0-4 Points) + Decision Engine
+=============================================================
+Calculates 4 structural indicators (breadth, net highs, smart money, VIX),
+combines with Risk Appetite Pro (institutional sentiment) via a 2×2 matrix
+to produce a unified Final Regime + Confidence Score.
 
 Usage:
     python3 market_regime.py
@@ -18,6 +20,8 @@ import matplotlib.dates as mdates
 import os
 import json
 from datetime import datetime, timedelta
+from risk_appetite_pro import calculate_risk_appetite_pro
+from decision_engine import compute_decision, print_decision
 
 # --- 路徑設定 ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +33,86 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 快取設定 ---
 CACHE_HOURS = 4
+FORCE_REFRESH = False  # Set by --force-refresh flag
+
+
+# ==========================================
+# DATA FRESHNESS VALIDATION
+# ==========================================
+
+def is_market_open_today() -> bool:
+    """Check if today is a US trading day (weekday, not a major holiday)."""
+    today = datetime.now()
+    # Weekend
+    if today.weekday() >= 5:  # Sat=5, Sun=6
+        return False
+    # Major US market holidays (month, day) — extend as needed
+    HOLIDAYS = [
+        (1, 1),   # New Year's
+        (1, 20),  # MLK Day (3rd Mon Jan — approximate)
+        (2, 17),  # Presidents Day (3rd Mon Feb — approximate)
+        (4, 18),  # Good Friday (approximate)
+        (5, 26),  # Memorial Day (last Mon May — approximate)
+        (7, 4),   # Independence Day
+        (9, 1),   # Labor Day (1st Mon Sep — approximate)
+        (11, 27), # Thanksgiving (4th Thu Nov — approximate)
+        (12, 25), # Christmas
+    ]
+    if (today.month, today.day) in HOLIDAYS:
+        return False
+    return True
+
+
+def get_last_trading_day() -> datetime:
+    """Get the most recent trading day (skip weekends/holidays)."""
+    d = datetime.now()
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def validate_data_freshness(df: pd.DataFrame, label: str = "Data", max_age_days: int = 3) -> dict:
+    """
+    Validate that a DataFrame's last date is recent enough.
+
+    Args:
+        df: DataFrame with DatetimeIndex
+        label: Name for logging (e.g., "Stock Data", "Macro Data")
+        max_age_days: Maximum acceptable age in calendar days
+
+    Returns:
+        {"is_fresh": bool, "last_date": str, "age_days": int, "warning": str}
+    """
+    if df is None or df.empty:
+        return {"is_fresh": False, "last_date": "N/A", "age_days": 999, "warning": f"{label}: empty DataFrame"}
+
+    last_date = df.index[-1]
+    if hasattr(last_date, 'tz_localize'):
+        last_date = last_date.tz_localize(None) if last_date.tz else last_date
+
+    now = datetime.now()
+    age = (now - last_date).days if hasattr(last_date, 'year') else 999
+
+    is_fresh = age <= max_age_days
+    warning = ""
+
+    if age == 0:
+        warning = f"{label}: ✅ Today's data ({last_date.strftime('%Y-%m-%d')})"
+    elif age == 1:
+        warning = f"{label}: ✅ Yesterday's data ({last_date.strftime('%Y-%m-%d')})"
+    elif age <= max_age_days:
+        warning = f"{label}: ⚠️ {age} days old ({last_date.strftime('%Y-%m-%d')})"
+    else:
+        warning = f"{label}: ❌ STALE — {age} days old ({last_date.strftime('%Y-%m-%d')})"
+
+    print(f"  {warning}")
+
+    return {
+        "is_fresh": is_fresh,
+        "last_date": last_date.strftime("%Y-%m-%d") if hasattr(last_date, 'strftime') else str(last_date),
+        "age_days": age,
+        "warning": warning,
+    }
 
 
 # ==========================================
@@ -105,16 +189,20 @@ def get_or_load_sp500_tickers():
 # ==========================================
 
 def download_stock_data(tickers, fetch_days=550):
-    """下載 S&P 500 股票數據 (支援快取)"""
+    """下載 S&P 500 股票數據 (支援快取 + freshness check)"""
     cache_path = os.path.join(RESULT_DIR, "market_data.parquet")
 
-    if is_cache_fresh(cache_path):
+    if not FORCE_REFRESH and is_cache_fresh(cache_path):
         cached = load_cached_data(cache_path)
         if cached is not None and len(cached) > 100:
             if isinstance(cached.columns, pd.MultiIndex):
                 cached.columns = cached.columns.get_level_values(0)
             if len(cached.columns) >= len(tickers) * 0.8:
-                return cached
+                freshness = validate_data_freshness(cached, "Stock Cache", max_age_days=3)
+                if freshness["is_fresh"]:
+                    return cached
+                else:
+                    print(f"  🔄 Cache stale ({freshness['age_days']}d), re-downloading...")
 
     print(f"  📥 Downloading {len(tickers)} stocks ({fetch_days} days)...")
     data = yf.download(tickers, period=f"{fetch_days}d", progress=False)['Close']
@@ -122,20 +210,25 @@ def download_stock_data(tickers, fetch_days=550):
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
 
+    validate_data_freshness(data, "Stock Data", max_age_days=3)
     save_cached_data(data, cache_path)
     return data
 
 
 def download_macro_data(fetch_days=300):
-    """下載宏觀數據: HYG, IEF, VIX"""
+    """下載宏觀數據: HYG, IEF, VIX (支援快取 + freshness check)"""
     cache_path = os.path.join(RESULT_DIR, "macro_data.parquet")
 
-    if is_cache_fresh(cache_path):
+    if not FORCE_REFRESH and is_cache_fresh(cache_path):
         cached = load_cached_data(cache_path)
         if cached is not None and len(cached) > 50:
             if isinstance(cached.columns, pd.MultiIndex):
                 cached.columns = cached.columns.get_level_values(0)
-            return cached
+            freshness = validate_data_freshness(cached, "Macro Cache", max_age_days=3)
+            if freshness["is_fresh"]:
+                return cached
+            else:
+                print(f"  🔄 Cache stale ({freshness['age_days']}d), re-downloading...")
 
     print(f"  📥 Downloading macro data (HYG, IEF, VIX)...")
     symbols = ['HYG', 'IEF', '^VIX']
@@ -148,6 +241,7 @@ def download_macro_data(fetch_days=300):
     if '^VIX' in data.columns:
         data = data.rename(columns={'^VIX': 'VIX'})
 
+    validate_data_freshness(data, "Macro Data", max_age_days=3)
     save_cached_data(data, cache_path)
     return data
 
@@ -269,7 +363,7 @@ def calculate_smart_money_score(macro_data):
 
     if 'HYG' not in macro_data.columns or 'IEF' not in macro_data.columns:
         print("  ⚠️ HYG/IEF data not available")
-        return {"score": 0, "ratio": 0, "ratio_sma": 0, "trend": "Unknown"}
+        return {"score": 0, "ratio": 0, "ratio_sma": 0, "trend": "Unknown", "smart_df": pd.DataFrame()}
 
     # Calculate ratio
     ratio = macro_data['HYG'] / macro_data['IEF']
@@ -312,7 +406,7 @@ def calculate_vix_score(macro_data):
 
     if 'VIX' not in macro_data.columns:
         print("  ⚠️ VIX data not available")
-        return {"score": 0, "vix": 0, "vix_sma": 0}
+        return {"score": 0, "vix": 0, "vix_sma": 0, "vix_df": pd.DataFrame()}
 
     vix = macro_data['VIX'].dropna()
     vix_sma = vix.rolling(window=20).mean()
@@ -343,26 +437,26 @@ def calculate_vix_score(macro_data):
 # ==========================================
 
 def map_score_to_regime(total_score):
-    """將總分映射到市場環境"""
+    """將總分映射到市場環境 (out of 4 — structural only)"""
     if total_score == 4:
         return {
-            "Regime": "Aggressive Buy (Full Risk-On)",
-            "Action": "VCP / Stage 2 Breakouts"
+            "Regime": "Strong (All Clear)",
+            "Action": "Full Risk-On"
         }
     elif total_score == 3:
         return {
-            "Regime": "Selective Buy (Moderate Risk)",
-            "Action": "Pullbacks / High RS only"
+            "Regime": "Moderate (Mostly Bullish)",
+            "Action": "Selective Buy"
         }
     elif total_score >= 1:
         return {
-            "Regime": "Caution (Whip-saw / Hard Money)",
-            "Action": "Mean Reversion / Oversold Screener"
+            "Regime": "Weak (Caution)",
+            "Action": "Defensive"
         }
     else:
         return {
-            "Regime": "Cash is King (Bear Market)",
-            "Action": "Cash / Short Bias"
+            "Regime": "Critical (Bear Market)",
+            "Action": "Cash Only"
         }
 
 
@@ -370,23 +464,41 @@ def map_score_to_regime(total_score):
 # EXPORT TO JSON
 # ==========================================
 
-def export_market_regime(result):
-    """儲存市場狀態到 JSON"""
+def export_market_regime(mh_result, ra_result, decision):
+    """儲存統一市場狀態到 JSON"""
     state_path = os.path.join(RESULT_DIR, "market_regime.json")
 
     state = {
         "Date": datetime.now().strftime("%Y-%m-%d"),
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Total_Score": result["Total_Score"],
-        "Regime": result["Regime"],
-        "Metrics": {
-            "Breadth_50MA_Pct": result["Metrics"]["Breadth_50MA_Pct"],
-            "Breadth_200MA_Pct": result["Metrics"]["Breadth_200MA_Pct"],
-            "Net_New_Highs": result["Metrics"]["Net_New_Highs"],
-            "Smart_Money_Ratio_Trend": result["Metrics"]["Smart_Money_Ratio_Trend"],
-            "VIX_Level": result["Metrics"]["VIX_Level"]
+
+        # ── Unified Decision ──
+        "Final_Regime": decision["Final_Regime"],
+        "Confidence": decision["Confidence"],
+        "Position_Pct": decision["Position_Pct"],
+        "Recommended_Action": decision["Action"],
+
+        # ── Panel A: Market Health (Structural) ──
+        "Market_Health": {
+            "Score": mh_result["Total_Score"],
+            "Max_Score": 4,
+            "Regime": mh_result["Regime"],
+            "Indicator_Scores": mh_result["Indicator_Scores"],
+            "Metrics": mh_result["Metrics"],
         },
-        "Recommended_Action": result["Recommended_Action"]
+
+        # ── Panel B: Risk Appetite (Sentiment) ──
+        "Risk_Appetite": {
+            "Score": ra_result["score"],
+            "Max_Score": 4,
+            "Signal": ra_result["signal"],
+            "Indicator_Scores": ra_result["indicator_scores"],
+            "Metrics": ra_result["metrics"],
+        },
+
+        # ── Backwards compat (run_pipeline.py reads these) ──
+        "Regime": decision["Final_Regime"],
+        "Total_Score": mh_result["Total_Score"],
     }
 
     with open(state_path, "w") as f:
@@ -419,6 +531,20 @@ def plot_market_health(breadth_df, net_df, smart_df, vix_df, output_path=None):
     """繪製 4-in-1 市場健康圖表"""
     if output_path is None:
         output_path = os.path.join(OUTPUT_DIR, "market_health.png")
+
+    # Guard: skip if any DataFrame is empty
+    empty = []
+    if breadth_df is None or breadth_df.empty:
+        empty.append("breadth")
+    if net_df is None or net_df.empty:
+        empty.append("net_highs")
+    if smart_df is None or smart_df.empty:
+        empty.append("smart_money")
+    if vix_df is None or vix_df.empty:
+        empty.append("vix")
+    if empty:
+        print(f"  ⚠️ Chart skipped — empty data: {', '.join(empty)}")
+        return
 
     fig, axes = plt.subplots(4, 1, figsize=(14, 16), facecolor='#131722')
 
@@ -510,8 +636,8 @@ def run_market_health(skip_chart=False):
     print(f"\n  [3/6] Downloading macro data...")
     macro_data = download_macro_data(fetch_days=300)
 
-    # 3. 計算 4 個指標
-    print(f"\n  [4/6] Calculating indicators...")
+    # 3. 計算 4 個結構指標
+    print(f"\n  [4/7] Calculating Market Health indicators...")
 
     # Indicator 1: Breadth
     breadth_result = calculate_breadth_score(stock_data)
@@ -525,41 +651,47 @@ def run_market_health(skip_chart=False):
     # Indicator 4: VIX
     vix_result = calculate_vix_score(macro_data)
 
-    # 4. 計算總分
-    total_score = (breadth_result["score"] +
-                   net_result["score"] +
-                   smart_result["score"] +
-                   vix_result["score"])
+    # Market Health total (out of 4)
+    mh_score = (breadth_result["score"] +
+                net_result["score"] +
+                smart_result["score"] +
+                vix_result["score"])
 
-    regime_info = map_score_to_regime(total_score)
+    mh_regime = map_score_to_regime(mh_score)
 
-    # 5. 組裝結果
-    result = {
-        "Total_Score": total_score,
-        "Regime": regime_info["Regime"],
-        "Recommended_Action": regime_info["Action"],
+    mh_result = {
+        "Total_Score": mh_score,
+        "Regime": mh_regime["Regime"],
         "Metrics": {
             "Breadth_50MA_Pct": breadth_result["breadth_50"],
             "Breadth_200MA_Pct": breadth_result["breadth_200"],
             "Net_New_Highs": net_result["net_highs"],
             "Smart_Money_Ratio_Trend": smart_result["trend"],
-            "VIX_Level": vix_result["vix"]
+            "VIX_Level": vix_result["vix"],
         },
         "Indicator_Scores": {
             "Breadth": breadth_result["score"],
             "Net_Highs": net_result["score"],
             "Smart_Money": smart_result["score"],
-            "VIX": vix_result["score"]
+            "VIX": vix_result["score"],
         }
     }
 
+    # 4. 計算 Risk Appetite Pro
+    print(f"\n  [5/7] Calculating Risk Appetite Pro...")
+    ra_result = calculate_risk_appetite_pro()
+
+    # 5. Unified Decision Engine
+    decision = compute_decision(mh_score, ra_result["signal"])
+    print_decision(decision)
+
     # 6. 匯出 JSON
-    print(f"\n  [5/6] Exporting to JSON...")
-    export_market_regime(result)
+    print(f"\n  [6/7] Exporting to JSON...")
+    export_market_regime(mh_result, ra_result, decision)
 
     # 7. 繪製圖表
     if not skip_chart:
-        print(f"\n  [6/6] Generating chart...")
+        print(f"\n  [7/7] Generating chart...")
         plot_market_health(
             breadth_result["breadth_df"],
             net_result["net_df"],
@@ -567,28 +699,30 @@ def run_market_health(skip_chart=False):
             vix_result["vix_df"]
         )
     else:
-        print(f"\n  [6/6] Chart skipped")
+        print(f"\n  [7/7] Chart skipped")
 
-    # 8. 輸出結果
+    # 8. 市場健康摘要
     print(f"\n{'='*60}")
-    print(f"  🧭 MARKET HEALTH SCORE: {total_score} / 4")
+    print(f"  🏥 MARKET HEALTH: {mh_score} / 4")
     print(f"{'='*60}")
     print(f"  Breadth (50MA/200MA):  {breadth_result['breadth_50']}% / {breadth_result['breadth_200']}%  →  {'✅ +1' if breadth_result['score'] else '❌ 0'}")
     print(f"  Net New Highs:         {net_result['net_highs']} (EMA: {net_result['net_highs_ema']})  →  {'✅ +1' if net_result['score'] else '❌ 0'}")
     print(f"  Smart Money (HYG/IEF): {smart_result['trend']}  →  {'✅ +1' if smart_result['score'] else '❌ 0'}")
     print(f"  VIX Level:             {vix_result['vix']} (SMA: {vix_result['vix_sma']})  →  {'✅ +1' if vix_result['score'] else '❌ 0'}")
     print(f"{'='*60}")
-    print(f"  📌 Regime: {result['Regime']}")
-    print(f"  📌 Action: {result['Recommended_Action']}")
-    print(f"{'='*60}\n")
 
-    return result
+    return {"market_health": mh_result, "risk_appetite": ra_result, "decision": decision}
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Market Health Scoring System")
     parser.add_argument("--skip-chart", action="store_true", help="Skip chart generation")
+    parser.add_argument("--force-refresh", action="store_true", help="Ignore cache, re-download all data")
     args = parser.parse_args()
+
+    if args.force_refresh:
+        FORCE_REFRESH = True
+        print("  🔄 Force refresh: bypassing all caches")
 
     run_market_health(skip_chart=args.skip_chart)

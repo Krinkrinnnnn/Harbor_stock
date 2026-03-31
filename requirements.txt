@@ -8,13 +8,16 @@ numpy>=1.24
 # Data Source
 yfinance>=0.2.30
 
-# Charting
+# Charting (Plotly for interactive, kaleido for static PNG export)
 plotly>=5.18
 kaleido>=0.2.1
+matplotlib>=3.7
 
 # Backtesting
 backtrader>=1.9.76
 quantstats>=0.0.62
+backtesting>=0.2.1
+bokeh>=3.0
 
 # Configuration
 pyyaml>=6.0
@@ -22,8 +25,17 @@ pyyaml>=6.0
 # Scientific
 scipy>=1.11
 
-# Caching (parquet support)
+# Caching (parquet support) - dual engines for compatibility
 pyarrow>=14.0
+fastparquet>=2024.2.0
 
 # Web scraping (S&P 500 tickers)
 lxml>=4.9
+
+# Notifications
+requests>=2.31.0
+apprise>=1.7.0
+python-dotenv>=1.0.0
+
+# Macro data (OpenBB Platform - FRED, CBOE, treasury yields)
+openbb>=4.2.0

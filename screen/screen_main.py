@@ -22,7 +22,7 @@ from datetime import datetime
 SCREEN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
-    "screener": "all",  # stage2, momentum, week10_momentum, all
+    "screener": "all",  # stage2, momentum, week10_momentum, oversold, all
     
     # Data source
     "tickers_file": "tickers.txt",
@@ -74,6 +74,14 @@ DEFAULT_CONFIG = {
         "accumulation_days": 5,
         "accumulation_threshold": 0.10,
         "min_volume_avg": 50000000,
+    },
+    
+    # Oversold screener params (Spring Trap)
+    "oversold": {
+        "rsi_threshold": 30,        # Max RSI (oversold)
+        "volume_ratio": 1.2,        # Min volume vs 20d avg
+        "price_above_200ma": True,  # Must be above 200MA
+        "price_below_50ma": True,   # Must be below 50MA
     },
     
     # Output
@@ -275,6 +283,36 @@ def run_week10_momentum(config):
     return result
 
 
+def run_oversold(config):
+    """Run Oversold Spring Trap screener."""
+    print("\n" + "="*70)
+    print("  RUNNING OVERSOLD SCREENER (Spring Trap)")
+    print("="*70)
+    
+    from oversold_screener import run_screener as run_oversold_screener
+    
+    result = run_oversold_screener(
+        tickers=config.get("custom_tickers", None)
+    )
+    
+    if config.get("save_results", True):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        os.makedirs("screen_result", exist_ok=True)
+        filepath = f"screen_result/screener_oversold_{timestamp}.txt"
+        
+        if result is not None and not result.empty:
+            tickers = sorted(result["ticker"].tolist()) if "ticker" in result.columns else []
+        else:
+            tickers = []
+        
+        with open(filepath, "w") as f:
+            for t in tickers:
+                f.write(f"{t}\n")
+        print(f"\n  Saved: {filepath}")
+    
+    return result
+
+
 def run_all_screeners(config):
     """Run all screeners."""
     results = {}
@@ -287,7 +325,7 @@ def run_all_screeners(config):
     print(f"#  New High RS: {'ON' if config['enable_new_high_rs'] else 'OFF'}")
     print(f"{'#'*70}")
     
-    for screener_name in ["stage2", "momentum", "week10_momentum"]:
+    for screener_name in ["stage2", "momentum", "week10_momentum", "oversold"]:
         try:
             if screener_name == "stage2":
                 results["stage2"] = run_stage2(config)
@@ -295,6 +333,8 @@ def run_all_screeners(config):
                 results["momentum"] = run_momentum(config)
             elif screener_name == "week10_momentum":
                 results["week10_momentum"] = run_week10_momentum(config)
+            elif screener_name == "oversold":
+                results["oversold"] = run_oversold(config)
         except Exception as e:
             print(f"Error running {screener_name} screener: {e}")
             results[screener_name] = None
@@ -316,6 +356,7 @@ Examples:
   python3 main.py                           # Run all screeners
   python3 main.py --screener stage2         # Run only Stage 2
   python3 main.py --screener momentum       # Run only Momentum
+  python3 main.py --screener oversold        # Run only Oversold (Spring Trap)
   python3 main.py --no-liquidity            # Disable liquidity filter
   python3 main.py --no-rs-flag              # Disable new high RS flag
   python3 main.py --config config.yaml      # Use custom config file
@@ -325,7 +366,7 @@ Examples:
     # Screener selection
     parser.add_argument(
         "--screener", "-s",
-        choices=["stage2", "momentum", "week10_momentum", "all"],
+        choices=["stage2", "momentum", "week10_momentum", "oversold", "all"],
         default="all",
         help="Which screener to run (default: all)"
     )
@@ -450,6 +491,8 @@ Examples:
         run_momentum(config)
     elif args.screener == "week10_momentum":
         run_week10_momentum(config)
+    elif args.screener == "oversold":
+        run_oversold(config)
 
 
 if __name__ == "__main__":

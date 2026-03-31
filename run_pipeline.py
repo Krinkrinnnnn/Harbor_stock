@@ -46,16 +46,16 @@ def get_market_regime_state():
 
 def get_recommended_screener(regime):
     """根據市場環境推薦選股器"""
-    regime_name = regime["Regime"]
+    regime_name = regime.get("Final_Regime", regime.get("Regime", ""))
     
-    if "EASY_MONEY" in regime_name or "OVERBOUGHT" in regime_name:
-        return "stage2"  # 牛市：趨勢追蹤
-    elif "PULLBACK" in regime_name:
-        return "stage2"  # 回調：尋找 Stage 2 股票
-    elif "OVERSOLD" in regime_name:
-        return "momentum"  # 超賣：尋找反彈動量
-    else:  # HARD_MONEY / NEUTRAL
-        return "week10_momentum"  # 震盪：短期動量
+    if "EASY_MONEY" in regime_name:
+        return "stage2"  # Strong bull: trend following
+    elif "DISTRIBUTION" in regime_name:
+        return "stage2"  # Topping: find resilient Stage 2 stocks
+    elif "ACCUMULATION" in regime_name:
+        return "momentum"  # Bottom fishing: oversold bounce
+    else:  # HARD_MONEY_PROTECT or unknown
+        return "week10_momentum"  # Defensive: short-term momentum only
 
 
 # ==========================================
@@ -170,7 +170,7 @@ def print_summary(results, regime, screener_name):
     print(f"\n{'='*70}")
     print(f"  📊 BACKTEST SUMMARY")
     print(f"{'='*70}")
-    print(f"  Market Regime: {regime['Regime']}")
+    print(f"  Market Regime: {regime.get('Final_Regime', regime.get('Regime', 'UNKNOWN'))}")
     print(f"  Screener: {screener_name}")
     print(f"  Stocks Tested: {len(results)}")
     print(f"{'='*70}")
@@ -246,16 +246,21 @@ def main():
     # Step 1: Market Regime
     regime = get_market_regime_state()
     if regime:
-        print(f"\n  🧭 Market Regime: {regime['Regime']}")
-        print(f"     Above 50MA: {regime['Above_50MA']}% | Above 200MA: {regime['Above_200MA']}%")
-        print(f"     Action: {regime['Action']}")
+        regime_name = regime.get("Final_Regime", regime.get("Regime", "UNKNOWN"))
+        action = regime.get("Recommended_Action", "N/A")
+        confidence = regime.get("Confidence", 0)
+        position_pct = regime.get("Position_Pct", 0)
+        print(f"\n  🧭 Market Regime: {regime_name}")
+        print(f"     Confidence: {confidence:.0%} | Position: {position_pct}%")
+        print(f"     Action: {action}")
     else:
-        regime = {"Regime": "UNKNOWN", "Above_50MA": 0, "Above_200MA": 0, "Action": "N/A"}
+        regime = {"Final_Regime": "UNKNOWN", "Regime": "UNKNOWN", "Confidence": 0, "Action": "N/A"}
     
     # Step 2: Determine screener
     if args.screener == "auto":
         screener_name = get_recommended_screener(regime)
-        print(f"\n  🎯 Auto-selected: {screener_name} (based on {regime['Regime']})")
+        regime_name = regime.get("Final_Regime", regime.get("Regime", "UNKNOWN"))
+        print(f"\n  🎯 Auto-selected: {screener_name} (based on {regime_name})")
     else:
         screener_name = args.screener
     

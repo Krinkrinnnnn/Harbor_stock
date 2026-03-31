@@ -1,5 +1,69 @@
 # Usage Guide - Stock Analysis & Backtesting
 
+## Docker Setup (Recommended)
+
+### Build
+
+```bash
+docker compose build
+```
+
+### Run Any Script
+
+```bash
+# Stock analysis
+docker compose run --rm harbor-engine python main.py --symbol AAPL
+docker compose run --rm harbor-engine python main.py --symbol NVDA --backtest
+
+# Market regime
+docker compose run --rm harbor-engine python market_health/market_regime.py
+
+# Screeners
+docker compose run --rm harbor-engine python screen/screen_main.py
+docker compose run --rm harbor-engine python screen/screen_main.py --screener stage2
+
+# Full pipeline
+docker compose run --rm harbor-engine python run_pipeline.py
+
+# Interactive shell
+docker compose run --rm harbor-engine bash
+```
+
+All output files (`output/`, `back_test_result/`, `screen/screen_result/`, `market_health/screen_result/`) are mounted as volumes and persist on the host.
+
+---
+
+## Daily Development Flow
+
+Copy & paste in order:
+
+```bash
+# 1. Pull latest code
+git pull
+
+# 2. Rebuild if requirements or Dockerfile changed
+docker compose build
+
+# 3. Check market regime
+docker compose run --rm harbor-engine python market_health/market_regime.py
+
+# 4. Run full pipeline (screen → backtest → summary)
+docker compose run --rm harbor-engine python run_pipeline.py
+
+# 5. Or analyze a specific stock
+docker compose run --rm harbor-engine python main.py --symbol AAPL
+
+# 6. Review outputs
+ls -la output/
+ls -la back_test_result/
+ls -la screen/screen_result/
+
+# 7. Stage, commit, push
+git add -A && git commit -m "daily update" && git push
+```
+
+---
+
 ## Stock Analysis
 
 ### Analyze a Single Stock
